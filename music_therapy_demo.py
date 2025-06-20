@@ -1,6 +1,7 @@
 import time
 import requests
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
+from prompt_library import PROMPT_LIBRARY, synthesize_prompt
 
 # ========== CONFIGURATION ==========
 SUNO_API_BASE = "http://localhost:3000"  # Replace with your Suno API endpoint
@@ -12,7 +13,6 @@ def get_wearable_data() -> Dict[str, Any]:
     In production, replace this with actual device API calls.
     """
     # Example: heart rate, HRV, sleep stage, movement
-    # You can randomize or update these values to simulate real feedback
     return {
         "heart_rate": 68,         # bpm
         "hrv": 45,                # ms
@@ -36,34 +36,23 @@ def build_user_embedding(sensor_data: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 # ========== III. Prompt Synthesis & Scheduling ==========
-def synthesize_prompt(user_state: Dict[str, Any], last_feedback: str = None) -> str:
+def select_prompt_template(user_state: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Generate a Suno prompt based on user state and last feedback.
+    Select the most appropriate prompt template based on user state.
     """
-    base_prompt = (
-        "Generate a 5-minute ambient music piece designed for sleep induction. "
-        "Use soft textures, slow evolving pads, and minimal melodic activity. "
-        "The emotional tone should be calm, warm, and secure. "
-        "Avoid percussive elements, tempo shifts, or sharp harmonic changes. "
-        "The piece should start very quietly, gradually introduce gentle harmonics, and end with a fade-out to silence."
-    )
-
-    # Adjust prompt based on user state
     if user_state["anxiety_level"] >= 7:
-        base_prompt = (
-            "Create a music piece for patients with anxiety-driven insomnia. "
-            "The emotional intention is to calm, ground, and reassure. "
-            "Use consistent harmonic progressions, warm midrange instrumentation like soft strings and light piano, "
-            "and avoid tension or dissonance. Keep tempo slow and steady, and prevent abrupt transitions."
-        )
-    if user_state["sleep_stage"] == "deep":
-        base_prompt += " The music should fade out gradually as the user enters deep sleep."
-    if user_state["sound_preference"]:
-        base_prompt += f" Preferred instruments: {user_state['sound_preference']}."
-    if last_feedback:
-        base_prompt += f" Adjust according to feedback: {last_feedback}."
+        return PROMPT_LIBRARY["anxiety_insomnia"]
+    elif user_state["sleep_stage"] == "deep":
+        return PROMPT_LIBRARY["deep_sleep"]
+    # 可扩展更多分支
+    return PROMPT_LIBRARY["general_sleep"]
 
-    return base_prompt
+def build_prompt(user_state: Dict[str, Any], last_feedback: Optional[str] = None) -> str:
+    """
+    Build the final prompt string for music generation.
+    """
+    template = select_prompt_template(user_state)
+    return synthesize_prompt(template, user_state, last_feedback)
 
 # ========== IV. Music Generation & Selection Layer ==========
 def generate_music(prompt: str) -> List[Dict[str, Any]]:
@@ -81,14 +70,14 @@ def generate_music(prompt: str) -> List[Dict[str, Any]]:
     return response.json()
 
 # ========== V. Push & Adaptive Feedback Layer ==========
-def play_music(audio_url: str):
+def play_music(audio_url: str) -> None:
     """
     Simulate music playback on a device.
     In production, integrate with your audio playback system.
     """
     print(f"Playing music: {audio_url}")
 
-def record_session(user_state: Dict[str, Any], prompt: str, music_info: Dict[str, Any], feedback: str):
+def record_session(user_state: Dict[str, Any], prompt: str, music_info: Dict[str, Any], feedback: str) -> None:
     """
     Record the session data for future personalization and analysis.
     """
@@ -115,11 +104,11 @@ def get_sleep_feedback(sensor_data: Dict[str, Any]) -> str:
         return "Continue current strategy."
 
 # ========== MAIN LOOP ==========
-def main():
+def main() -> None:
     """
     Main loop for passive music therapy system.
     """
-    last_feedback = None
+    last_feedback: Optional[str] = None
     for session in range(3):  # Simulate 3 music sessions
         print(f"\n--- Session {session+1} ---")
         # 1. Get real-time sensor data
@@ -127,11 +116,15 @@ def main():
         # 2. Build user embedding
         user_state = build_user_embedding(sensor_data)
         # 3. Synthesize prompt
-        prompt = synthesize_prompt(user_state, last_feedback)
+        prompt = build_prompt(user_state, last_feedback)
         print("Prompt:", prompt)
         # 4. Generate music
-        music_data = generate_music(prompt)
-        audio_url = music_data[0].get("audio_url", "N/A")
+        try:
+            music_data = generate_music(prompt)
+            audio_url = music_data[0].get("audio_url", "N/A")
+        except Exception as e:
+            print(f"Music generation failed: {e}")
+            break
         # 5. Play music
         play_music(audio_url)
         # 6. Wait and simulate feedback (in real system, poll device data)
